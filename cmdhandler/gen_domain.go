@@ -6,10 +6,12 @@ import (
 	"cmdtools/tools"
 	"log"
 	"os"
+	"strings"
 )
 
 const (
 	entityDir     = "../domain/entity"
+	mapperDir     = "../domain/mapper"
 	repositoryDir = "../domain/repository"
 	serviceDir    = "../domain/service"
 )
@@ -26,6 +28,8 @@ func GenDomain(args []string) {
 		// gen all files
 		// gen entity
 		GenEntity(table, tableFields)
+		// gen mapper sql
+		GenMapper(table)
 		// gen repository
 		GenRepository(table)
 		// gen service
@@ -38,7 +42,7 @@ func GenEntity(table string, tableFields []tabledao.TableDesc) {
 	// 判断文件是否存在，存在则不处理
 
 	entityName := tools.CamelString(table) + "Entity"
-	content := "package entity\n " +
+	content := "package entity\n\n" +
 		"type " + entityName + " struct {\n"
 	// gen struct fields
 	var structFields string
@@ -60,18 +64,29 @@ func (` + entityName + `) TableName() string {
 	CreateFileIfNotExist(entityFileName, content)
 }
 
+// GenMapper 生成mapper，sql映射
+func GenMapper(table string) {
+	// 判断文件是否存在，存在则不处理
+	mapperDirPrefixName := strings.ReplaceAll(table, "_", "")
+	content := "package " + mapperDirPrefixName + "mapper\n\n" +
+		"const (\n\tGetOne = `select * from " + table + " limit 1`\n)\n"
+	mapperDirName := conf.ExecDir + mapperDir + "/" + mapperDirPrefixName + "mapper"
+	os.Mkdir(mapperDirName, os.ModePerm) // 创建特定table mapper目录
+	mapperFileName := mapperDirName + "/" + table + "_mapper.go"
+	CreateFileIfNotExist(mapperFileName, content)
+}
+
 // GenRepository
 func GenRepository(table string) {
 	// 判断文件是否存在，存在则不处理
 	tableCamelName := tools.CamelString(table)
-	content := "package repository\n " +
-		"import (\n\t\"dragon/domain/entity\"\n\t\"gorm.io/gorm\"\n)\n" +
-		"const (\n\tGetOne = `select * from " + table + " limit 1`\n)\n" +
+	mapperDirPrefixName := strings.ReplaceAll(table, "_", "")
+	content := "package repository\n\n" +
+		"import (\n\t\"dragon/domain/entity\"\n\t\"dragon/domain/mapper/" + mapperDirPrefixName + "mapper" + "\"\n\t\"gorm.io/gorm\"\n)\n\n" +
 		"type I" + tableCamelName + "Repository interface {GetOne() (*entity." + tableCamelName + "Entity" + ", error)}\n" +
 		"type " + tableCamelName + "Repository struct {\n\tMysqlDB *gorm.DB\n}\n" +
 		"func New" + tableCamelName + "Repository(db *gorm.DB) I" + tableCamelName + "Repository {\n\treturn &" + tableCamelName + "Repository{\n\t\tMysqlDB: db,\n\t}\n}\n" +
-		"func (this *" + tableCamelName + "Repository" + ") GetOne() (*entity." + tableCamelName + "Entity, error) {\n\tvar data entity." + tableCamelName + "Entity\n\tres := this.MysqlDB.Raw(GetOne).Scan(&data)\n\treturn &data, res.Error\n}"
-
+		"func (this *" + tableCamelName + "Repository" + ") GetOne() (*entity." + tableCamelName + "Entity, error) {\n\tvar data entity." + tableCamelName + "Entity\n\tres := this.MysqlDB.Raw(" + mapperDirPrefixName + "mapper.GetOne).Scan(&data)\n\treturn &data, res.Error\n}"
 	repoFileName := conf.ExecDir + repositoryDir + "/" + table + "_repository.go"
 	CreateFileIfNotExist(repoFileName, content)
 }
@@ -91,10 +106,10 @@ func GenService(table string) {
 }
 
 // CreateFileIfNotExist 如果文件不存在，则创建文件
-func CreateFileIfNotExist(fileName string, content string)  {
+func CreateFileIfNotExist(fileName string, content string) {
 	fileName = conf.FmtSlash(fileName) // 区分windows系统
 	fileInfo, err := os.Stat(fileName)
-	if fileInfo != nil{
+	if fileInfo != nil {
 		// 文件存在，不改变
 		return
 	}
